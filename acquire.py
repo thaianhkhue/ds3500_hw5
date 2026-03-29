@@ -1,15 +1,15 @@
 """
 acquire.py
 ----------
-Single responsibility: fetch and clean LAMP subway performance data
-for the Red Line in February 2026. Returns analysis-ready DataFrames.
-No plotting, no modeling.
+Fetch and clean LAMP subway performance data
+for the Red Line in February 2026. Returns cleaned, concatenated
+February DataFrame filtered to a given trunk_route_id and ordered list of
+station names for a given line.
 """
 
 import pandas as pd
 from pathlib import Path
 
-# ── Configuration ─────────────────────────────────────────────────────────────
 ROUTE_ID = "Red"
 CACHE_PATH = Path("february_red_data.parquet")
 
@@ -18,43 +18,41 @@ BASE_URL = (
     "{year}-{month:02d}-{day:02d}-subway-on-time-performance-v1.parquet"
 )
 
-# Geographic stop order for the Red Line (inbound: Alewife => branches)
+#geographic stop order for the red line (Alewife -> branches)
 RED_LINE_STOPS = [
-    "place-alfcl", # Alewife
-    "place-davis", # Davis
-    "place-portr", # Porter
-    "place-harsq", # Harvard
-    "place-cntsq", # Central
-    "place-knncl", # Kendall/MIT
-    "place-chmnl", # Charles/MGH
-    "place-pktrm", # Park Street
-    "place-dwnxg", # Downtown Crossing
-    "place-sstat", # South Station
-    "place-brdwy", # Broadway
-    "place-andrw", # Andrew
-    "place-jfk",   # JFK/UMass (branch split)
-    # Ashmont branch
-    "place-smmnl", # Savin Hill
-    "place-fldcr", # Fields Corner
-    "place-shmnl", # Shawmut
-    "place-asmnl", # Ashmont
-    # Braintree branch
-    "place-nqncy", # North Quincy
-    "place-wlsta", # Wollaston
-    "place-qnctr", # Quincy Center
-    "place-qamnl", # Quincy Adams
-    "place-brntn", # Braintree
+    "place-alfcl",
+    "place-davis",
+    "place-portr",
+    "place-harsq",
+    "place-cntsq",
+    "place-knncl",
+    "place-chmnl",
+    "place-pktrm",
+    "place-dwnxg",
+    "place-sstat",
+    "place-brdwy",
+    "place-andrw",
+    "place-jfk",
+    "place-smmnl",
+    "place-fldcr",
+    "place-shmnl",
+    "place-asmnl",
+    "place-nqncy",
+    "place-wlsta",
+    "place-qnctr",
+    "place-qamnl",
+    "place-brntn",
 ]
 
-
-# ── Fetch ──────────────────────────────────────────────────────────────────────
-
+#Data fetching
 def fetch_february(use_cache: bool = True) -> pd.DataFrame:
     """
-    Fetch all 28 days of February 2026 for the Red Line.
-    Filters to trunk_route_id == 'Red' immediately after each fetch.
-    Caches the concatenated result locally to avoid repeated downloads.
+    Fetches all 28 days of February 2026 for the red line route.
+    Filters to trunk_route_id == 'Red' after each fetch. Also, caches the result locally.
+    Args: use_cache (bool) -> if True, loads from the local parquet cache if it exists
+    Returns: DataFrame
     """
+
     if use_cache and CACHE_PATH.exists():
         print(f"Loading from cache: {CACHE_PATH}")
         return pd.read_parquet(CACHE_PATH)
@@ -77,33 +75,31 @@ def fetch_february(use_cache: bool = True) -> pd.DataFrame:
     return combined
 
 
-# ── Clean ──────────────────────────────────────────────────────────────────────
-
+#Data cleaning
 def clean(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Clean the raw LAMP DataFrame:
-      1. Deduplicate trip_id/stop_id pairs - keep earliest per pair
-      2. Drop rows missing required fields for actual travel analysis
-      3. Sum segment times into full end-to-end trip durations
-      4. Compute scheduled full-trip durations only where scheduled data exists
-      5. Track stop count per trip to flag coverage gaps
-    Returns a stop-level DataFrame with both segment and full-trip columns.
+    Cleans the raw LAMP DataFrame and achieves the following by deduplicating trip_id/stop_id pairs, keeping
+    earliest per pair, drops rows missing required fields for actual analysis, sums segment times into full
+    trip durations, computes scheduled full trip durations only where the scheduled data is, and tracks
+    stop count per trip to identify coverage gaps.
+    Args: DataFram — raw concatenated LAMP data for the red line
+    Returns: cleaned DataFrame
     """
     df = df.copy()
 
-    # 1. Deduplicate - keep earliest record per (trip_id, stop_id)
+    #deduplicate
     if "stop_timestamp" in df.columns:
         df = df.sort_values("stop_timestamp")
     df = df.drop_duplicates(subset=["trip_id", "stop_id"], keep="first")
 
-    # 2. Drop rows missing required fields
+    #drop rows missing required fields
     required_cols = [
         "trip_id", "parent_station",
         "travel_time_seconds", "service_date",
     ]
     df = df.dropna(subset=[c for c in required_cols if c in df.columns])
 
-    # 3. Sum segment times into full end-to-end trip durations
+    #sums segment times into full trip durations
     trip_actual = (
         df.groupby(["trip_id", "service_date"])["travel_time_seconds"]
         .sum()
@@ -119,7 +115,7 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
         .rename(columns={"scheduled_travel_time": "trip_scheduled_seconds"})
     )
 
-    # 4. Count stops per trip to identify trips with large coverage gaps
+    #count stops per trip to identify trips with large coverage gaps
     trip_stop_counts = (
         df.groupby(["trip_id", "service_date"])["parent_station"]
         .count()
@@ -127,19 +123,18 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
         .rename(columns={"parent_station": "stop_count"})
     )
 
-    # Keep only stop-level columns the model needs
+    #keep only stop level columns
     stop_level = df[[
         "trip_id", "service_date", "parent_station",
         "travel_time_seconds", "scheduled_travel_time",
     ]].copy()
 
-    # Merge trip-level aggregates back onto stop-level rows
+    #merge trip level aggregates back onto stop level rows
     stop_level = stop_level.merge(trip_actual, on=["trip_id", "service_date"], how="left")
     stop_level = stop_level.merge(trip_scheduled, on=["trip_id", "service_date"], how="left")
     stop_level = stop_level.merge(trip_stop_counts, on=["trip_id", "service_date"], how="left")
 
-    # Normalize service_date to YYYY-MM-DD strings
-    # Handle integer format (YYYYMMDD) or date/datetime format
+    #Convert service_date to correct string format
     if pd.api.types.is_integer_dtype(stop_level["service_date"]):
         stop_level["service_date"] = pd.to_datetime(
             stop_level["service_date"].astype(str), format="%Y%m%d"
@@ -151,30 +146,23 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
 
     return stop_level
 
-
-# ── Public API ─────────────────────────────────────────────────────────────────
-
 def get_clean_dataframe(route_id: str = ROUTE_ID, use_cache: bool = True) -> pd.DataFrame:
     """
-    Full pipeline: fetch => clean => return.
-    Primary entry point for the model layer.
-
-    Returns a stop-level DataFrame with columns:
-        trip_id, service_date, parent_station,
-        travel_time_seconds (segment actual)
-        scheduled_travel_time (segment scheduled)
-        trip_actual_seconds (full trip actual)
-        trip_scheduled_seconds (full trip scheduled)
-        stop_count (stops recorded per trip)
+    Runs the full fetch and clean pipeline and returns a complete
+    stop level DataFrame ready for analysis.
+    Args: route_id (str), use_cache (bool)
+    Returns: DataFrame with columns trip_id, service_date, parent_station,
+             travel_time_seconds, scheduled_travel_time, trip_actual_seconds,
+             trip_scheduled_seconds, stop_count
     """
     raw = fetch_february(use_cache=use_cache)
     return clean(raw)
 
-
 def get_stop_order(route_id: str = ROUTE_ID) -> list[str]:
     """
-    Return the hardcoded geographic stop order for the Red Line.
-    Only parent_station IDs that appear in the cleaned data will be
-    used by the model layer - extras are harmless.
+    Returns the hardcoded geographic stop order for the Red Line,
+    ordered inbound from Alewife through the different branches.
+    Args: route_id (str)
+    Returns: list of parent_station ID strings
     """
     return RED_LINE_STOPS

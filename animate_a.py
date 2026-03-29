@@ -1,9 +1,9 @@
 """
 animate_a.py
 ------------
-Single responsibility: consume SubwayLine computed fields and produce
+Take SubwayLine computed fields and produce
 an animated line plot of actual vs. scheduled daily mean travel time
-across February 2026. No data fetching, no aggregation.
+across February 2026.
 """
 
 import matplotlib.pyplot as plt
@@ -15,7 +15,26 @@ from acquire import get_clean_dataframe, get_stop_order
 from model import SubwayLine
 
 
+def animate(frame, date_list, actual_list, scheduled_list, line_actual, line_scheduled):
+    """
+    Updates both line artists for frame i by slicing date and value lists
+    up to the current frame and calling the set_data() function on each line
+    Args: frame (int), date_list (list), actual_list (list),
+          scheduled_list (list), line_actual (Line2D), line_scheduled (Line2D)
+    Returns: tuple of Line2D artists
+    """
+    x = date_list[:frame + 1]
+    line_actual.set_data(x, actual_list[:frame + 1])
+    line_scheduled.set_data(x, scheduled_list[:frame + 1])
+    return line_actual, line_scheduled
+
+
 def main():
+    """
+    Builds the SubwayLine model, extracts computed fields, sets up the
+    figure and axes, creates both line artists, and runs FuncAnimation
+    to produce the animated mp4.
+    """
     df = get_clean_dataframe()
     stops = get_stop_order()
 
@@ -51,9 +70,9 @@ def main():
         color="steelblue", alpha=0.15, label="Blizzard (Feb 23–24)"
     )
 
-    line_actual,    = ax.plot([], [], color="crimson",    linewidth=2,
+    line_actual,    = ax.plot([], [], color="crimson",   linewidth=2,
                               marker="o", markersize=4, label="Actual")
-    line_scheduled, = ax.plot([], [], color="steelblue",  linewidth=2,
+    line_scheduled, = ax.plot([], [], color="steelblue", linewidth=2,
                               linestyle="--", marker="o", markersize=4,
                               label="Scheduled")
 
@@ -61,24 +80,19 @@ def main():
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
 
-    def animate(frame, dates, actual_vals, scheduled_vals):
-        x = dates[:frame + 1]
-        line_actual.set_data(x, actual_vals[:frame + 1])
-        line_scheduled.set_data(x, scheduled_vals[:frame + 1])
-        return line_actual, line_scheduled
-
     anim = FuncAnimation(
         fig,
         animate,
         frames=len(dates),
-        fargs=(dates, actual_vals, scheduled_vals),
+        fargs=(dates, actual_vals, scheduled_vals, line_actual, line_scheduled),
         interval=200,
         blit=True
     )
 
     anim.save("mbta_red_animation_a.mp4", writer="ffmpeg", fps=5, dpi=150)
-    print("Saved mbta_red_animation_a.mp4")
+    print("mbta_red_animation_a.mp4 saved to folder")
     plt.show()
+
 
 if __name__ == "__main__":
     main()
