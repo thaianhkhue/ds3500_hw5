@@ -43,11 +43,16 @@ def update(frame, full_matrix, current_matrix, im):
     """
     Reveals column i of the heatmap by copying day i from the full matrix
     into the current matrix and calling set_array() on the image artist.
+    Resets the matrix when the animation restarts (frame 0) to enable looping.
     Args: frame (int), full_matrix (ndarray), current_matrix (ndarray), im (AxesImage)
     Returns: list containing the updated AxesImage artist
     """
+    if frame == 0:
+        current_matrix[:] = np.nan
+
     current_matrix[:, frame] = full_matrix[:, frame]
     im.set_array(current_matrix)
+
     return [im]
 
 
@@ -110,15 +115,13 @@ def main():
         frames=len(line.dates),
         fargs=(full_matrix, current_matrix, im),
         interval=300,
-        blit=True
+        blit=False
     )
 
+    plt.show()
     writer = FFMpegWriter(fps=2)
     anim.save("mbta_red_animation_b.mp4", writer=writer)
     print("mbta_red_animation_b.mp4 saved to folder")
-
-    plt.show()
-
 
 if __name__ == "__main__":
     main()
